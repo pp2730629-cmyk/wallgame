@@ -1,0 +1,514 @@
+         <!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Wall Breaker: Light Blue Edition</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            background-color: #020617;
+            color: #f8fafc;
+            margin: 0;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            font-family: 'Inter', sans-serif;
+        }
+        canvas {
+            background: #0f172a;
+            border: 4px solid #1e293b;
+            border-radius: 12px;
+            box-shadow: 0 0 60px rgba(0,0,0,0.7);
+            cursor: none;
+        }
+        .glass-panel {
+            background: rgba(15, 23, 42, 0.9);
+            backdrop-filter: blur(16px);
+        }
+        .level-node {
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .level-node.locked {
+            background: #1e293b;
+            color: #475569;
+            cursor: not-allowed;
+            border-color: transparent;
+            opacity: 0.5;
+        }
+        .level-node.current {
+            background: #0ea5e9;
+            color: white;
+            box-shadow: 0 0 20px rgba(14, 165, 233, 0.5);
+            border-color: #7dd3fc;
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+            100% { transform: scale(1); }
+        }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        
+        #coinPopup {
+            position: fixed;
+            pointer-events: none;
+            color: #fbbf24;
+            font-weight: 900;
+            animation: floatUp 0.8s ease-out forwards;
+            z-index: 50;
+        }
+        @keyframes floatUp {
+            0% { transform: translateY(0) scale(1); opacity: 1; }
+            100% { transform: translateY(-60px) scale(1.2); opacity: 0; }
+        }
+
+        .stat-bump {
+            animation: bump 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+        @keyframes bump {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.2); color: #fbbf24; }
+            100% { transform: scale(1); }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Main Menu (Home Screen) -->
+    <div id="homeScreen" class="fixed inset-0 z-[100] flex flex-col items-center justify-center glass-panel">
+        <div class="w-full max-w-4xl p-8 flex flex-col h-[90vh]">
+            <div class="flex justify-between items-end mb-8">
+                <div>
+                    <h1 class="text-6xl font-black italic tracking-tighter text-white mb-2 uppercase">Wall Breaker</h1>
+                    <div class="flex items-center gap-3">
+                        <span class="bg-sky-500 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-widest text-black">PRO</span>
+                        <p class="text-sky-400 font-bold uppercase tracking-[0.4em] text-xs">Collect coins to unlock levels (Lvl x 10)</p>
+                    </div>
+                </div>
+                <div class="flex gap-4">
+                    <div class="bg-slate-800/50 px-6 py-3 rounded-2xl border border-slate-700">
+                        <p class="text-[10px] text-amber-500 font-bold uppercase">Total Wallet</p>
+                        <p id="homeGemDisplay" class="text-2xl font-black text-white">0</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="flex-1 overflow-y-auto no-scrollbar bg-slate-900/50 rounded-3xl border border-slate-800 p-8">
+                <h3 class="text-slate-500 font-bold mb-6 flex items-center gap-2 uppercase tracking-widest text-sm">
+                    <span class="w-2 h-2 rounded-full bg-sky-500 animate-ping"></span> Level Select
+                </h3>
+                <div id="levelGrid" class="grid grid-cols-5 md:grid-cols-10 gap-4 pb-12"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- HUD (Game View) -->
+    <div id="gameHeader" class="hidden flex gap-4 mb-4 items-center w-[800px] justify-between">
+        <div class="flex gap-4">
+            <div id="levelBox" class="bg-slate-800/40 px-4 py-2 rounded-xl border border-slate-700">
+                <p class="text-[9px] uppercase tracking-widest text-sky-400 font-black">Level</p>
+                <p id="levelDisplay" class="text-xl font-black text-white italic">1</p>
+            </div>
+            <div id="scoreBox" class="bg-slate-800/40 px-4 py-2 rounded-xl border border-slate-700">
+                <p class="text-[9px] uppercase tracking-widest text-slate-400 font-black">Score</p>
+                <p id="scoreDisplay" class="text-xl font-black text-white italic">0</p>
+            </div>
+            <div id="livesBox" class="bg-slate-800/40 px-4 py-2 rounded-xl border border-red-900/50">
+                <p class="text-[9px] uppercase tracking-widest text-red-500 font-black">Lives</p>
+                <p id="livesDisplay" class="text-xl font-black text-red-500 italic">3</p>
+            </div>
+            <div id="coinContainer" class="bg-slate-800/40 px-4 py-2 rounded-xl border border-amber-900/30 min-w-[150px]">
+                <p id="goalLabel" class="text-[9px] uppercase tracking-widest text-amber-400 font-black">Goal: 10 Coins</p>
+                <div class="flex items-center gap-2">
+                    <span class="text-amber-400 text-xs">🪙</span>
+                    <p id="gemDisplay" class="text-xl font-black text-amber-400 italic">0 / 10</p>
+                </div>
+            </div>
+        </div>
+        <button id="menuBtn" class="bg-slate-800 hover:bg-slate-700 text-slate-400 px-5 py-2.5 rounded-xl font-black text-xs uppercase border border-slate-700 transition-colors">Menu</button>
+    </div>
+
+    <div class="relative">
+        <canvas id="gameCanvas"></canvas>
+    </div>
+
+    <!-- Victory/Loss Modal -->
+    <div id="modal" class="fixed inset-0 z-50 hidden items-center justify-center glass-panel">
+        <div class="text-center p-10 max-w-md bg-slate-900 rounded-[3rem] border border-slate-700 shadow-2xl">
+            <h1 id="modalTitle" class="text-6xl font-black italic tracking-tighter mb-2 text-white uppercase">VICTORY!</h1>
+            <p id="modalDesc" class="text-slate-400 uppercase tracking-[0.3em] text-xs mb-8">Next level unlocked</p>
+            <div class="flex flex-col gap-3">
+                <button id="startBtn" class="bg-sky-500 hover:bg-sky-400 text-black px-12 py-5 rounded-2xl font-black text-xl uppercase transition-all active:scale-95">Continue</button>
+                <button id="modalMenuBtn" class="text-slate-500 hover:text-white font-bold text-sm py-2 uppercase tracking-widest transition-colors">Main Menu</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const GAME_WIDTH = 800;
+        const GAME_HEIGHT = 500;
+        
+        let game = {
+            level: 1,
+            maxUnlockedLevel: 1,
+            score: 0,
+            totalGems: 0, 
+            levelGems: 0,
+            lives: 3,
+            state: 'home', 
+            bricks: [],
+            particles: [],
+            wallFlashes: { left: 0, right: 0, top: 0 },
+            ball: { x: 400, y: 450, dx: 4, dy: -4, radius: 8, trail: [] },
+            paddle: { x: 325, w: 150, h: 14, flash: 0, dx: 0, prevX: 325 }, 
+            keys: {}
+        };
+
+        const LIGHT_BLUE = '#7dd3fc'; // Tailwind Sky-300
+
+        function getLevelGoal(lvl) {
+            return lvl * 10;
+        }
+
+        function createParticles(x, y, color) {
+            for (let i = 0; i < 8; i++) {
+                game.particles.push({
+                    x: x,
+                    y: y,
+                    dx: (Math.random() - 0.5) * 6,
+                    dy: (Math.random() - 0.5) * 6,
+                    life: 1.0,
+                    size: Math.random() * 3 + 2,
+                    color: color
+                });
+            }
+        }
+
+        function syncUI(type = null) {
+            const goal = getLevelGoal(game.level);
+            document.getElementById('scoreDisplay').innerText = game.score.toLocaleString();
+            document.getElementById('gemDisplay').innerText = `${game.levelGems} / ${goal}`;
+            document.getElementById('goalLabel').innerText = `Goal: ${goal} Coins`;
+            document.getElementById('homeGemDisplay').innerText = game.totalGems.toLocaleString();
+            document.getElementById('levelDisplay').innerText = game.level;
+            document.getElementById('livesDisplay').innerText = game.lives;
+
+            if (type === 'coin') {
+                const el = document.getElementById('gemDisplay').parentElement;
+                el.classList.remove('stat-bump');
+                void el.offsetWidth;
+                el.classList.add('stat-bump');
+            }
+        }
+
+        function setupLevelGrid() {
+            const grid = document.getElementById('levelGrid');
+            grid.innerHTML = '';
+            for (let i = 1; i <= 50; i++) {
+                const node = document.createElement('button');
+                const isLocked = i > game.maxUnlockedLevel;
+                const isCurrent = (i === game.maxUnlockedLevel);
+                
+                let classList = `level-node aspect-square rounded-xl flex flex-col items-center justify-center border-2 `;
+                
+                if (isLocked) {
+                    classList += 'locked';
+                    node.innerHTML = `<span class="text-lg font-black">${i}</span><span class="text-[8px] uppercase opacity-40">Locked</span>`;
+                } else {
+                    if (isCurrent) classList += 'current ';
+                    else classList += 'bg-slate-800 text-white hover:bg-slate-700 border-slate-700 ';
+                    node.innerHTML = `<span class="text-lg font-black">${i}</span><span class="text-[8px] uppercase opacity-70">${getLevelGoal(i)}🪙</span>`;
+                }
+                
+                node.className = classList;
+                if (!isLocked) {
+                    node.onclick = () => { 
+                        game.level = i; 
+                        game.lives = 3; 
+                        game.levelGems = 0; 
+                        startMatch(); 
+                    };
+                }
+                grid.appendChild(node);
+            }
+            syncUI();
+        }
+
+        function spawnCoinEffect(x, y) {
+            const el = document.createElement('div');
+            el.id = 'coinPopup';
+            el.innerText = '+1 🪙';
+            el.style.left = `${canvas.offsetLeft + x}px`;
+            el.style.top = `${canvas.offsetTop + y}px`;
+            document.body.appendChild(el);
+            setTimeout(() => el.remove(), 800);
+        }
+
+        function initLevel() {
+            game.bricks = [];
+            game.particles = [];
+            game.wallFlashes = { left: 0, right: 0, top: 0 };
+            game.levelGems = 0; 
+            
+            const rows = 8;
+            const cols = 10;
+            const bWidth = (GAME_WIDTH - 120) / cols;
+            const bHeight = 18;
+            const padding = 4;
+            for(let r = 0; r < rows; r++) {
+                for(let c = 0; c < cols; c++) {
+                    game.bricks.push({
+                        x: 60 + c * (bWidth + padding),
+                        y: 50 + r * (bHeight + padding),
+                        w: bWidth,
+                        h: bHeight,
+                        color: `hsl(${220 - (r * 15)}, 70%, 50%)`
+                    });
+                }
+            }
+            resetBall();
+            game.paddle.x = (GAME_WIDTH - game.paddle.w) / 2;
+            syncUI();
+        }
+
+        function resetBall() {
+            game.ball.x = 400;
+            game.ball.y = 440;
+            const speed = 4.5 + (game.level * 0.15);
+            game.ball.dx = (Math.random() > 0.5 ? 1 : -1) * speed;
+            game.ball.dy = -speed;
+            game.ball.trail = [];
+        }
+
+        function startMatch() {
+            game.state = 'playing';
+            document.getElementById('homeScreen').classList.add('hidden');
+            document.getElementById('gameHeader').classList.remove('hidden');
+            initLevel();
+            requestAnimationFrame(update);
+        }
+
+        function update() {
+            if (game.state !== 'playing') return;
+
+            game.paddle.prevX = game.paddle.x;
+            if (game.keys['ArrowLeft'] && game.paddle.x > 0) game.paddle.x -= 14;
+            if (game.keys['ArrowRight'] && game.paddle.x < GAME_WIDTH - game.paddle.w) game.paddle.x += 14;
+            game.paddle.dx = game.paddle.x - game.paddle.prevX;
+
+            game.ball.x += game.ball.dx;
+            game.ball.y += game.ball.dy;
+            game.ball.trail.push({x: game.ball.x, y: game.ball.y});
+            if (game.ball.trail.length > 12) game.ball.trail.shift();
+
+            if (game.ball.x <= game.ball.radius) {
+                game.ball.dx = Math.abs(game.ball.dx);
+                game.wallFlashes.left = 1.0;
+            }
+            if (game.ball.x >= GAME_WIDTH - game.ball.radius) {
+                game.ball.dx = -Math.abs(game.ball.dx);
+                game.wallFlashes.right = 1.0;
+            }
+            if (game.ball.y <= game.ball.radius) {
+                game.ball.dy = Math.abs(game.ball.dy);
+                game.wallFlashes.top = 1.0;
+            }
+
+            const paddleY = GAME_HEIGHT - 40;
+            if (game.ball.y + game.ball.radius >= paddleY && game.ball.y <= paddleY + game.paddle.h) {
+                if (game.ball.x > game.paddle.x && game.ball.x < game.paddle.x + game.paddle.w) {
+                    game.ball.dy = -Math.abs(game.ball.dy);
+                    game.ball.y = paddleY - game.ball.radius; 
+                    let hitPos = (game.ball.x - (game.paddle.x + game.paddle.w / 2)) / (game.paddle.w / 2);
+                    game.ball.dx = (hitPos * 7) + (game.paddle.dx * 0.3); 
+                    game.paddle.flash = 1.0;
+                }
+            }
+
+            if (game.ball.y > GAME_HEIGHT) {
+                game.lives--;
+                syncUI();
+                if (game.lives <= 0) {
+                    game.state = 'gameover';
+                    showModal("GAME OVER", `Collect ${getLevelGoal(game.level)} coins in one run to advance.`, "TRY AGAIN");
+                } else resetBall();
+            }
+
+            for (let i = game.bricks.length - 1; i >= 0; i--) {
+                const b = game.bricks[i];
+                if (game.ball.x > b.x && game.ball.x < b.x + b.w && game.ball.y > b.y && game.ball.y < b.y + b.h) {
+                    game.ball.dy *= -1;
+                    createParticles(game.ball.x, game.ball.y, b.color);
+                    game.bricks.splice(i, 1);
+                    
+                    game.levelGems += 1;
+                    game.totalGems += 1;
+                    game.score += (game.level * 10);
+                    syncUI('coin'); 
+                    spawnCoinEffect(game.ball.x, game.ball.y);
+                    
+                    if (game.levelGems >= getLevelGoal(game.level)) { 
+                        handleWin(); 
+                        return; 
+                    }
+                    break;
+                }
+            }
+
+            game.wallFlashes.left *= 0.9;
+            game.wallFlashes.right *= 0.9;
+            game.wallFlashes.top *= 0.9;
+
+            for (let i = game.particles.length - 1; i >= 0; i--) {
+                const p = game.particles[i];
+                p.x += p.dx; p.y += p.dy; p.life -= 0.04;
+                if (p.life <= 0) game.particles.splice(i, 1);
+            }
+
+            draw();
+            requestAnimationFrame(update);
+        }
+
+        function handleWin() {
+            game.state = 'won';
+            if (game.level >= game.maxUnlockedLevel) {
+                game.maxUnlockedLevel = game.level + 1;
+            }
+            const nextGoal = getLevelGoal(game.level + 1);
+            showModal("LEVEL COMPLETE", `You reached the goal of ${getLevelGoal(game.level)} coins!`, "NEXT LEVEL");
+            setupLevelGrid();
+        }
+
+        function draw() {
+            ctx.fillStyle = '#0f172a';
+            ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
+
+            // Subtle Grid
+            ctx.strokeStyle = 'rgba(30, 41, 59, 0.5)';
+            ctx.lineWidth = 1;
+            for(let i=0; i<GAME_WIDTH; i+=50) { ctx.beginPath(); ctx.moveTo(i,0); ctx.lineTo(i, GAME_HEIGHT); ctx.stroke(); }
+            for(let i=0; i<GAME_HEIGHT; i+=50) { ctx.beginPath(); ctx.moveTo(0,i); ctx.lineTo(GAME_WIDTH, i); ctx.stroke(); }
+
+            // Wall Flashes
+            if (game.wallFlashes.left > 0.01) {
+                ctx.fillStyle = `rgba(125, 211, 252, ${game.wallFlashes.left * 0.3})`;
+                ctx.fillRect(0, 0, 6, GAME_HEIGHT);
+            }
+            if (game.wallFlashes.right > 0.01) {
+                ctx.fillStyle = `rgba(125, 211, 252, ${game.wallFlashes.right * 0.3})`;
+                ctx.fillRect(GAME_WIDTH - 6, 0, 6, GAME_HEIGHT);
+            }
+            if (game.wallFlashes.top > 0.01) {
+                ctx.fillStyle = `rgba(125, 211, 252, ${game.wallFlashes.top * 0.3})`;
+                ctx.fillRect(0, 0, GAME_WIDTH, 6);
+            }
+
+            // Bricks
+            game.bricks.forEach(b => {
+                ctx.fillStyle = b.color;
+                ctx.beginPath();
+                ctx.roundRect(b.x, b.y, b.w, b.h, 3);
+                ctx.fill();
+                ctx.fillStyle = 'rgba(255,255,255,0.1)';
+                ctx.fillRect(b.x, b.y, b.w, 2);
+            });
+
+            // Light Blue Paddle
+            const paddleY = GAME_HEIGHT - 40;
+            ctx.fillStyle = LIGHT_BLUE;
+            ctx.shadowBlur = 15;
+            ctx.shadowColor = LIGHT_BLUE;
+            ctx.beginPath();
+            ctx.roundRect(game.paddle.x, paddleY, game.paddle.w, game.paddle.h, 7);
+            ctx.fill();
+            ctx.shadowBlur = 0;
+
+            if (game.paddle.flash > 0) {
+                ctx.globalAlpha = game.paddle.flash;
+                ctx.fillStyle = '#ffffff';
+                ctx.beginPath();
+                ctx.roundRect(game.paddle.x, paddleY, game.paddle.w, game.paddle.h, 7);
+                ctx.fill();
+                ctx.globalAlpha = 1.0;
+                game.paddle.flash -= 0.08;
+            }
+
+            // Particles
+            game.particles.forEach(p => {
+                ctx.globalAlpha = p.life;
+                ctx.fillStyle = p.color;
+                ctx.fillRect(p.x, p.y, p.size, p.size);
+                ctx.globalAlpha = 1.0;
+            });
+
+            // Ball Trail
+            game.ball.trail.forEach((t, i) => {
+                const opacity = (i / game.ball.trail.length) * 0.2;
+                ctx.beginPath();
+                ctx.arc(t.x, t.y, game.ball.radius * (0.6 + (i / game.ball.trail.length) * 0.4), 0, Math.PI * 2);
+                ctx.fillStyle = `rgba(125, 211, 252, ${opacity})`;
+                ctx.fill();
+            });
+
+            // Ball
+            ctx.beginPath();
+            ctx.arc(game.ball.x, game.ball.y, game.ball.radius, 0, Math.PI*2);
+            ctx.fillStyle = '#ffffff';
+            ctx.shadowBlur = 12;
+            ctx.shadowColor = '#ffffff';
+            ctx.fill();
+            ctx.shadowBlur = 0;
+        }
+
+        function showModal(title, desc, btnText) {
+            document.getElementById('modalTitle').innerText = title;
+            document.getElementById('modalDesc').innerText = desc;
+            document.getElementById('startBtn').innerText = btnText;
+            document.getElementById('modal').style.display = 'flex';
+        }
+
+        document.getElementById('startBtn').onclick = () => { 
+            document.getElementById('modal').style.display = 'none'; 
+            if (game.state === 'won') {
+                game.level = Math.min(50, game.level + 1);
+            }
+            game.lives = 3; 
+            game.levelGems = 0; 
+            startMatch(); 
+        };
+
+        const goToMenu = () => { 
+            game.state = 'home'; 
+            document.getElementById('modal').style.display = 'none'; 
+            document.getElementById('gameHeader').classList.add('hidden'); 
+            document.getElementById('homeScreen').classList.remove('hidden'); 
+            setupLevelGrid(); 
+        };
+
+        document.getElementById('menuBtn').onclick = goToMenu;
+        document.getElementById('modalMenuBtn').onclick = goToMenu;
+        
+        window.addEventListener('keydown', e => game.keys[e.code] = true);
+        window.addEventListener('keyup', e => game.keys[e.code] = false);
+        
+        canvas.addEventListener('mousemove', (e) => {
+            if (game.state !== 'playing') return;
+            const rect = canvas.getBoundingClientRect();
+            game.paddle.x = (e.clientX - rect.left) - game.paddle.w / 2;
+            if (game.paddle.x < 0) game.paddle.x = 0;
+            if (game.paddle.x > GAME_WIDTH - game.paddle.w) game.paddle.x = GAME_WIDTH - game.paddle.w;
+        });
+
+        canvas.width = GAME_WIDTH;
+        canvas.height = GAME_HEIGHT;
+        setupLevelGrid();
+    </script>
+</body>
+</html>
